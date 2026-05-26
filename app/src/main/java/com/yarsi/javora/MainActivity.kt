@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-//asasass
+//a
 @Composable
 fun MainNavigation() {
     val context = LocalContext.current
