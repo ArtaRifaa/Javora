@@ -172,8 +172,74 @@ fun MainNavigation() {
                         }
                     }
                     "quiz" -> QuizScreen(
+                        topicName = currentTopic,
                         questions = quizQuestions,
-                        onTabSelected = { currentScreen = it.lowercase() },
+                        progressMap = progressMap,
+                        onExit = { partialProgress ->
+                            if (partialProgress > 0f && currentTopic.isNotEmpty()) {
+                                val currentStored = progressMap[currentTopic] ?: 0f
+                                if (partialProgress > currentStored) {
+                                    val newMap = progressMap.toMutableMap().apply {
+                                        put(currentTopic, partialProgress)
+                                    }
+                                    progressMap = newMap
+                                    scope.launch {
+                                        val userId = appwriteService.getCurrentUserId()
+                                        if (userId != null) {
+                                            appwriteService.saveUserProfile(
+                                                userId = userId,
+                                                fullName = userName,
+                                                totalXp = userTotalXp,
+                                                level = userLevel,
+                                                title = "ANTUSIAS JAVA",
+                                                score = userTotalXp,
+                                                progressMap = newMap
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            quizQuestions = emptyList()
+                            currentTopic = ""
+                            currentScreen = "geranda" 
+                        },
+                        onContinueQuiz = { topic ->
+                            currentTopic = topic
+                            currentScreen = "quiz_loading"
+                            scope.launch {
+                                try {
+                                    val questions = aiService.generateQuestions(topic)
+                                    if (questions.isNotEmpty()) {
+                                        quizQuestions = questions
+                                        currentScreen = "quiz"
+                                    } else {
+                                        currentScreen = "geranda"
+                                    }
+                                } catch (e: Exception) {
+                                    currentScreen = "geranda"
+                                }
+                            }
+                        },
+                        onResetProgress = { topic ->
+                            val newMap = progressMap.toMutableMap().apply {
+                                remove(topic)
+                            }
+                            progressMap = newMap
+                            scope.launch {
+                                val userId = appwriteService.getCurrentUserId()
+                                if (userId != null) {
+                                    appwriteService.saveUserProfile(
+                                        userId = userId,
+                                        fullName = userName,
+                                        totalXp = userTotalXp,
+                                        level = userLevel,
+                                        title = "ANTUSIAS JAVA",
+                                        score = userTotalXp,
+                                        progressMap = newMap
+                                    )
+                                }
+                            }
+                        },
                         onQuizComplete = { finalScore ->
                             val correctCount = finalScore / 100
                             val total = quizQuestions.size
@@ -197,7 +263,7 @@ fun MainNavigation() {
                                             totalXp = totalXp,
                                             level = level,
                                             title = "ANTUSIAS JAVA",
-                                            score = totalXp, // Skor di papan peringkat mengikuti total XP
+                                            score = totalXp,
                                             progressMap = newMap
                                         )
                                         userTotalXp = totalXp
@@ -206,10 +272,13 @@ fun MainNavigation() {
                                     }
                                 }
                             }
-
+                            quizQuestions = emptyList()
+                            currentTopic = ""
                             currentScreen = "geranda"
                         },
                         onQuizFailed = {
+                            quizQuestions = emptyList()
+                            currentTopic = ""
                             currentScreen = "geranda"
                         }
                     )
