@@ -184,14 +184,14 @@ fun ChallengeCard(onStartQuiz: (String) -> Unit) {
 @Composable
 fun TopicCard(topic: Topic, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         shape = RoundedCornerShape(16.dp)
     ) {
         Box(
             modifier = Modifier
+                .fillMaxWidth()
                 .background(
                     brush = Brush.linearGradient(
                         colors = listOf(JavoraCardBg, Color(0xFF2D1B3E))

@@ -133,6 +133,20 @@ class AppwriteService(context: Context) {
     suspend fun getUserProfile(userId: String): Map<String, Any>? {
         android.util.Log.d("AppwriteService", "Mencari data untuk user_id: $userId")
         return try {
+            // 1. Coba ambil langsung pakai documentId (userId) karena paling cepat
+            try {
+                val docResponse = databases.getDocument(
+                    databaseId = DATABASE_ID,
+                    collectionId = COLLECTION_USERS,
+                    documentId = userId
+                )
+                android.util.Log.d("AppwriteService", "DATA BERHASIL DIAMBIL (ID): ${docResponse.data}")
+                return docResponse.data
+            } catch (e: Exception) {
+                android.util.Log.d("AppwriteService", "Gagal ambil via ID, mencoba via Query...")
+            }
+
+            // 2. Jika tidak ketemu via ID, coba cari menggunakan query
             val response = databases.listDocuments(
                 databaseId = DATABASE_ID,
                 collectionId = COLLECTION_USERS,
@@ -141,14 +155,15 @@ class AppwriteService(context: Context) {
             
             if (response.documents.isNotEmpty()) {
                 val data = response.documents[0].data
-                android.util.Log.d("AppwriteService", "DATA BERHASIL DIAMBIL: $data")
-                data
-            } else {
-                android.util.Log.d("AppwriteService", "DATA TIDAK DITEMUKAN untuk user_id: $userId")
-                null
+                android.util.Log.d("AppwriteService", "DATA BERHASIL DIAMBIL (Query): $data")
+                return data
             }
+
+            null
         } catch (e: AppwriteException) {
             android.util.Log.e("AppwriteService", "GAGAL AKSES DATABASE: ${e.message}")
+            null
+        } catch (e: Exception) {
             null
         }
     }

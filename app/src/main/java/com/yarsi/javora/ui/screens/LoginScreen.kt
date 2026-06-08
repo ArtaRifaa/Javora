@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -34,7 +35,8 @@ import kotlinx.coroutines.launch
 fun LoginScreen(onLoginSuccess: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val appwriteService = remember { AppwriteService(context) }
+    val isPreview = LocalInspectionMode.current
+    val appwriteService = remember { if (isPreview) null else AppwriteService(context) }
 
     var isLoginMode by remember { mutableStateOf(true) }
     var name by remember { mutableStateOf("") }
@@ -204,19 +206,19 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                                 errorMessage = null
                                 scope.launch {
                                     val result = if (isLoginMode) {
-                                        appwriteService.login(email, password)
+                                        appwriteService?.login(email, password)
                                     } else {
-                                        appwriteService.signUp(email, password, name)
+                                        appwriteService?.signUp(email, password, name)
                                     }
                                     
-                                    if (result.isSuccess) {
+                                    if (result?.isSuccess == true) {
                                         if (!isLoginMode) {
                                             // Auto login after signup
-                                            appwriteService.login(email, password)
+                                            appwriteService?.login(email, password)
                                         }
                                         onLoginSuccess()
                                     } else {
-                                        val error = result.exceptionOrNull()
+                                        val error = result?.exceptionOrNull()
                                         errorMessage = error?.message ?: "Terjadi kesalahan sistem."
                                     }
                                     isLoading = false

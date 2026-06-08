@@ -17,6 +17,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -39,9 +41,12 @@ fun ProfileScreen(
     onTabSelected: (String) -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val appwriteService = remember { com.yarsi.javora.data.remote.AppwriteService(context) }
+    val isPreview = LocalInspectionMode.current
+    val appwriteService = remember { 
+        if (isPreview) null else com.yarsi.javora.data.remote.AppwriteService(context) 
+    }
 
     Scaffold(
         containerColor = JavoraDarkBg,
@@ -199,7 +204,7 @@ fun ProfileScreen(
                 SettingsItem(Icons.Default.Settings, "Pengaturan Aplikasi")
                 SettingsItem(Icons.AutoMirrored.Filled.Logout, "Keluar", isLogout = true) {
                     scope.launch {
-                        if (appwriteService.logout()) {
+                        if (appwriteService?.logout() == true) {
                             onLogout()
                         }
                     }
