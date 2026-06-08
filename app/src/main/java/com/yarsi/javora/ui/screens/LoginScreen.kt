@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -25,16 +26,17 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yarsi.javora.data.remote.AppwriteService
+import com.yarsi.javora.data.repository.AuthRepository
 import com.yarsi.javora.ui.components.JavoraLogo
 import com.yarsi.javora.ui.theme.*
 import kotlinx.coroutines.launch
-// wayau wayau wayau
+
 @Composable
-fun LoginScreen(onLoginSuccess: () -> Unit) {
-    val context = LocalContext.current
+fun LoginScreen(
+    authRepository: AuthRepository? = null,
+    onLoginSuccess: () -> Unit
+) {
     val scope = rememberCoroutineScope()
-    val appwriteService = remember { AppwriteService(context) }
 
     var isLoginMode by remember { mutableStateOf(true) }
     var name by remember { mutableStateOf("") }
@@ -59,7 +61,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Logo inside white box
             Surface(
                 color = Color.White,
                 shape = RoundedCornerShape(8.dp),
@@ -89,7 +90,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Form Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = JavoraCardBg),
                 shape = RoundedCornerShape(16.dp),
@@ -183,7 +183,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     if (isLoginMode) {
                         Spacer(modifier = Modifier.height(8.dp))
                         TextButton(
-                            onClick = { /* TODO */ },
+                            onClick = { /* Login */ },
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Lupa Kata Sandi?", color = Color(0xFFCC8B3C))
@@ -204,19 +204,18 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                                 errorMessage = null
                                 scope.launch {
                                     val result = if (isLoginMode) {
-                                        appwriteService.login(email, password)
+                                        authRepository?.login(email, password)
                                     } else {
-                                        appwriteService.signUp(email, password, name)
+                                        authRepository?.signUp(email, password, name)
                                     }
                                     
-                                    if (result.isSuccess) {
+                                    if (result?.isSuccess == true) {
                                         if (!isLoginMode) {
-                                            // Auto login after signup
-                                            appwriteService.login(email, password)
+                                            authRepository?.login(email, password)
                                         }
                                         onLoginSuccess()
                                     } else {
-                                        val error = result.exceptionOrNull()
+                                        val error = result?.exceptionOrNull()
                                         errorMessage = error?.message ?: "Terjadi kesalahan sistem."
                                     }
                                     isLoading = false

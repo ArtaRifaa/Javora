@@ -12,13 +12,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yarsi.javora.data.QuestionRepository
 import com.yarsi.javora.data.QuizQuestion
-import com.yarsi.javora.data.remote.AiService
+import com.yarsi.javora.data.repository.AuthRepository
+import com.yarsi.javora.data.repository.CatatanRepository
 import com.yarsi.javora.ui.components.JavoraSplashScreen
 import com.yarsi.javora.ui.screens.*
 import com.yarsi.javora.ui.theme.JavoraTheme
+import com.yarsi.javora.ui.viewmodel.UserViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,46 +35,47 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-//a
+//
 @Composable
 fun MainNavigation() {
     val context = LocalContext.current
-    val appwriteService = remember { com.yarsi.javora.data.remote.AppwriteService(context) }
+    val authRepository = remember { AuthRepository(context) }
+    val catatanRepository = remember { CatatanRepository(context) }
+    val mainRepository = remember { com.yarsi.javora.data.repository.MainRepository(context) }
+    
+    // Inisialisasi ViewModel (Pola MVVM)
+    val userViewModel = remember { UserViewModel(authRepository, catatanRepository, context) }
+    
     var currentScreen by remember { mutableStateOf("splash") }
     var quizQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
     var currentTopic by remember { mutableStateOf("") }
-    var progressMap by remember { mutableStateOf(mapOf<String, Float>()) }
-    var userName by remember { mutableStateOf("Coders") }
-    var userTotalXp by remember { mutableStateOf(0) }
-    var userLevel by remember { mutableStateOf(1) }
+    
+    // Data sekarang diambil dari ViewModel (Mirip LiveData)
+    val userName by userViewModel.userName
+    val userTotalXp by userViewModel.userTotalXp
+    val userLevel by userViewModel.userLevel
+    val progressMap by userViewModel.progressMap
+
     var leaderboardUsers by remember { mutableStateOf<List<com.yarsi.javora.data.RankUser>>(emptyList()) }
 
     val scope = rememberCoroutineScope()
-    val aiService = remember { AiService() }
-
-    suspend fun refreshUserData() {
-        val userId = appwriteService.getCurrentUserId() ?: return
-        val profile = appwriteService.getUserProfile(userId)
-        val nameFromAccount = appwriteService.getCurrentUserName()
-        
-        if (profile != null && profile.containsKey("total_xp")) {
-            android.util.Log.d("JavoraDebug", "Data dari Appwrite: $profile")
-            userName = profile["full_name"]?.toString() ?: nameFromAccount ?: "Pemain"
-            userTotalXp = profile["total_xp"]?.toString()?.toDoubleOrNull()?.toInt() ?: 0
-            userLevel = profile["level"]?.toString()?.toDoubleOrNull()?.toInt() ?: 1
-            progressMap = appwriteService.parseProgressData(profile["progress_data"] as? String)
-        } else if (profile == null) {
-            userName = nameFromAccount ?: "Coders"
-            userTotalXp = 0
-            userLevel = 1
-            progressMap = emptyMap()
-        }
-    }
 
     LaunchedEffect(Unit) {
         if (currentScreen == "splash") {
-            delay(2500)
-            currentScreen = "login"
+            val userId = authRepository.getCurrentUserId()
+            if (userId != null) {
+                // 1. Ambil data dari server
+                userViewModel.loadUserData()
+                
+                // 2. Beri waktu sebentar agar State di ViewModel benar-benar stabil
+                delay(1500) 
+                
+                // 3. Baru pindah layar
+                currentScreen = "geranda"
+            } else {
+                delay(2000)
+                currentScreen = "login"
+            }
         }
     }
 
@@ -86,51 +91,14 @@ fun MainNavigation() {
             ) { screen ->
                 when (screen) {
                     "splash" -> JavoraSplashScreen()
-                    "login" -> LoginScreen(onLoginSuccess = { 
-                        scope.launch {
-                            delay(1500)
-                            val userId = appwriteService.getCurrentUserId()
-                            if (userId != null) {
-                                val profile = appwriteService.getUserProfile(userId)
-                                if (profile == null) {
-                                    appwriteService.saveUserProfile(
-                                        userId = userId,
-                                        fullName = appwriteService.getCurrentUserName() ?: "aku",
-                                        totalXp = 0,
-                                        level = 1,
-                                        title = "ANTUSIAS JAVA",
-                                        score = 0,
-                                        progressMap = emptyMap()
-                                    )
-                                }
-                                refreshUserData()
-                            }
-                            currentScreen = "geranda" 
-                        }
-                    })
-                    "geranda" -> HomeScreen(
-                        userName = userName,
-                        totalXp = userTotalXp,
-                        level = userLevel,
-                        progressMap = progressMap,
-                        onTabSelected = { currentScreen = it.lowercase() },
-                        onStartQuiz = { topic ->
-                            if (currentScreen == "geranda") {
-                                currentTopic = topic
-                                currentScreen = "quiz_loading"
-                                scope.launch {
-                                    try {
-                                        val questions = aiService.generateQuestions(topic)
-                                        if (questions.isNotEmpty()) {
-                                            quizQuestions = questions
-                                            currentScreen = "quiz"
-                                        } else {
-                                            currentScreen = "geranda"
-                                        }
-                                    } catch (e: Exception) {
-                                        currentScreen = "geranda"
-                                    }
-                                }
+                    "login" -> LoginScreen(
+                        authRepository = authRepository,
+                        onLoginSuccess = { 
+                            scope.launch {
+                                // Ambil data dulu sebelum pindah layar
+                                userViewModel.loadUserData()
+                                delay(500)
+                                currentScreen = "geranda" 
                             }
                         }
                     )
@@ -164,7 +132,7 @@ fun MainNavigation() {
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 androidx.compose.material3.Text(
-                                    text = "Menyusun 10 soal oleh AI...",
+                                    text = "Menyiapkan tantangan kuis untukmu...",
                                     color = androidx.compose.ui.graphics.Color.Gray,
                                     fontSize = 12.sp
                                 )
@@ -176,29 +144,7 @@ fun MainNavigation() {
                         questions = quizQuestions,
                         progressMap = progressMap,
                         onExit = { partialProgress ->
-                            if (partialProgress > 0f && currentTopic.isNotEmpty()) {
-                                val currentStored = progressMap[currentTopic] ?: 0f
-                                if (partialProgress > currentStored) {
-                                    val newMap = progressMap.toMutableMap().apply {
-                                        put(currentTopic, partialProgress)
-                                    }
-                                    progressMap = newMap
-                                    scope.launch {
-                                        val userId = appwriteService.getCurrentUserId()
-                                        if (userId != null) {
-                                            appwriteService.saveUserProfile(
-                                                userId = userId,
-                                                fullName = userName,
-                                                totalXp = userTotalXp,
-                                                level = userLevel,
-                                                title = "ANTUSIAS JAVA",
-                                                score = userTotalXp,
-                                                progressMap = newMap
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            userViewModel.updatePartialProgress(currentTopic, partialProgress)
                             quizQuestions = emptyList()
                             currentTopic = ""
                             currentScreen = "geranda" 
@@ -208,70 +154,29 @@ fun MainNavigation() {
                             currentScreen = "quiz_loading"
                             scope.launch {
                                 try {
-                                    val questions = aiService.generateQuestions(topic)
+                                    delay(1500)
+                                    val questions = QuestionRepository.getQuestionsForTopic(topic)
+                                    
                                     if (questions.isNotEmpty()) {
                                         quizQuestions = questions
                                         currentScreen = "quiz"
                                     } else {
-                                        currentScreen = "geranda"
+                                        currentScreen = "quiz" 
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            android.widget.Toast.makeText(context, "Materi kuis belum tersedia.", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 } catch (e: Exception) {
-                                    currentScreen = "geranda"
+                                    android.util.Log.e("JavoraDebug", "Gagal memuat kuis", e)
+                                    currentScreen = "quiz"
                                 }
                             }
                         },
                         onResetProgress = { topic ->
-                            val newMap = progressMap.toMutableMap().apply {
-                                remove(topic)
-                            }
-                            progressMap = newMap
-                            scope.launch {
-                                val userId = appwriteService.getCurrentUserId()
-                                if (userId != null) {
-                                    appwriteService.saveUserProfile(
-                                        userId = userId,
-                                        fullName = userName,
-                                        totalXp = userTotalXp,
-                                        level = userLevel,
-                                        title = "ANTUSIAS JAVA",
-                                        score = userTotalXp,
-                                        progressMap = newMap
-                                    )
-                                }
-                            }
+                            userViewModel.resetProgress(topic)
                         },
                         onQuizComplete = { finalScore ->
-                            val correctCount = finalScore / 100
-                            val total = quizQuestions.size
-                            val newProgress = correctCount.toFloat() / total
-                            
-                            val currentProgress = progressMap[currentTopic] ?: 0f
-                            if (newProgress > currentProgress) {
-                                val newMap = progressMap.toMutableMap().apply {
-                                    put(currentTopic, newProgress)
-                                }
-                                progressMap = newMap
-                                
-                                scope.launch {
-                                    val userId = appwriteService.getCurrentUserId()
-                                    if (userId != null) {
-                                        val totalXp = newMap.values.sumOf { (it * 1000).toInt() }
-                                        val level = (totalXp / 500) + 1
-                                        appwriteService.saveUserProfile(
-                                            userId = userId,
-                                            fullName = userName,
-                                            totalXp = totalXp,
-                                            level = level,
-                                            title = "ANTUSIAS JAVA",
-                                            score = totalXp,
-                                            progressMap = newMap
-                                        )
-                                        userTotalXp = totalXp
-                                        userLevel = level
-                                        refreshUserData()
-                                    }
-                                }
-                            }
+                            userViewModel.updateQuizResult(currentTopic, finalScore, quizQuestions.size)
                             quizQuestions = emptyList()
                             currentTopic = ""
                             currentScreen = "geranda"
@@ -286,7 +191,7 @@ fun MainNavigation() {
                         LaunchedEffect(Unit) {
                             scope.launch {
                                 try {
-                                    val rawData = appwriteService.getLeaderboard()
+                                    val rawData = mainRepository.getLeaderboard()
                                     leaderboardUsers = rawData.mapIndexed { index, map ->
                                         com.yarsi.javora.data.RankUser(
                                             rank = index + 1,
@@ -295,7 +200,9 @@ fun MainNavigation() {
                                             subtitle = map["title"] as? String ?: "Coders"
                                         )
                                     }
-                                } catch (e: Exception) { }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("JavoraDebug", "Failed to fetch leaderboard", e)
+                                }
                             }
                         }
                         
@@ -315,21 +222,49 @@ fun MainNavigation() {
                         totalXp = userTotalXp,
                         level = userLevel,
                         completedQuizzes = progressMap.values.count { it > 0f },
+                        authRepository = authRepository,
                         onTabSelected = { currentScreen = it.lowercase() },
                         onLogout = { 
-                            progressMap = emptyMap()
-                            userTotalXp = 0
-                            userLevel = 1
+                            userViewModel.logout()
                             currentScreen = "login" 
                         }
                     )
-                    else -> HomeScreen(
-                        userName = userName,
-                        totalXp = userTotalXp,
-                        level = userLevel,
-                        progressMap = progressMap,
-                        onTabSelected = { currentScreen = it.lowercase() }
-                    )
+                    // Gabungkan geranda dan fallback ke satu handling
+                    else -> {
+                        val handleStartQuiz: (String) -> Unit = { topic ->
+                            currentTopic = topic
+                            currentScreen = "quiz_loading"
+                            scope.launch {
+                                try {
+                                    // Menggunakan Repository Manual
+                                    delay(1500)
+                                    val questions = QuestionRepository.getQuestionsForTopic(topic)
+                                    
+                                    if (questions.isNotEmpty()) {
+                                        quizQuestions = questions
+                                        currentScreen = "quiz"
+                                    } else {
+                                        currentScreen = "geranda"
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            android.widget.Toast.makeText(context, "Materi kuis belum tersedia.", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("JavoraDebug", "Gagal memuat kuis", e)
+                                    currentScreen = "geranda"
+                                }
+                            }
+                        }
+                        
+                        HomeScreen(
+                            userName = userName,
+                            totalXp = userTotalXp,
+                            level = userLevel,
+                            progressMap = progressMap,
+                            onTabSelected = { currentScreen = it.lowercase() },
+                            onStartQuiz = handleStartQuiz
+                        )
+                    }
                 }
             }
         }

@@ -28,7 +28,7 @@ import com.yarsi.javora.ui.theme.*
 
 @Composable
 fun HomeScreen(
-    userName: String = "Coders",
+    userName: String = "Pemain",
     totalXp: Int = 0,
     level: Int = 1,
     progressMap: Map<String, Float> = emptyMap(),
@@ -184,14 +184,14 @@ fun ChallengeCard(onStartQuiz: (String) -> Unit) {
 @Composable
 fun TopicCard(topic: Topic, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         shape = RoundedCornerShape(16.dp)
     ) {
         Box(
             modifier = Modifier
+                .fillMaxWidth()
                 .background(
                     brush = Brush.linearGradient(
                         colors = listOf(JavoraCardBg, Color(0xFF2D1B3E))

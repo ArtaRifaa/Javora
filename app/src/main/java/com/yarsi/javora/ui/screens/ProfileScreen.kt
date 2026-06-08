@@ -17,6 +17,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -24,6 +26,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.yarsi.javora.data.repository.AuthRepository
 import com.yarsi.javora.ui.components.JavoraBottomNavigation
 import com.yarsi.javora.ui.components.JavoraStandardHeader
 import com.yarsi.javora.ui.theme.*
@@ -36,12 +39,11 @@ fun ProfileScreen(
     totalXp: Int = 0,
     level: Int = 1,
     completedQuizzes: Int = 0,
+    authRepository: AuthRepository? = null,
     onTabSelected: (String) -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val appwriteService = remember { com.yarsi.javora.data.remote.AppwriteService(context) }
 
     Scaffold(
         containerColor = JavoraDarkBg,
@@ -199,7 +201,7 @@ fun ProfileScreen(
                 SettingsItem(Icons.Default.Settings, "Pengaturan Aplikasi")
                 SettingsItem(Icons.AutoMirrored.Filled.Logout, "Keluar", isLogout = true) {
                     scope.launch {
-                        if (appwriteService.logout()) {
+                        if (authRepository?.logout() == true) {
                             onLogout()
                         }
                     }
