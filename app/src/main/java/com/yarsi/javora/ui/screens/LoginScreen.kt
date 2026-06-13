@@ -17,8 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -61,6 +59,7 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
+            // Logo inside white box
             Surface(
                 color = Color.White,
                 shape = RoundedCornerShape(8.dp),
@@ -90,6 +89,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            // Form Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = JavoraCardBg),
                 shape = RoundedCornerShape(16.dp),
@@ -183,7 +183,7 @@ fun LoginScreen(
                     if (isLoginMode) {
                         Spacer(modifier = Modifier.height(8.dp))
                         TextButton(
-                            onClick = { /* Login */ },
+                            onClick = { /* TODO */ },
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text("Lupa Kata Sandi?", color = Color(0xFFCC8B3C))
@@ -199,23 +199,24 @@ fun LoginScreen(
 
                     Button(
                         onClick = { 
-                            if (!isLoading) {
+                            if (!isLoading && authRepository != null) {
                                 isLoading = true
                                 errorMessage = null
                                 scope.launch {
                                     val result = if (isLoginMode) {
-                                        authRepository?.login(email, password)
+                                        authRepository.login(email, password)
                                     } else {
-                                        authRepository?.signUp(email, password, name)
+                                        authRepository.signUp(email, password, name)
                                     }
                                     
-                                    if (result?.isSuccess == true) {
+                                    if (result.isSuccess) {
                                         if (!isLoginMode) {
-                                            authRepository?.login(email, password)
+                                            // Auto login after signup
+                                            authRepository.login(email, password)
                                         }
                                         onLoginSuccess()
                                     } else {
-                                        val error = result?.exceptionOrNull()
+                                        val error = result.exceptionOrNull()
                                         errorMessage = error?.message ?: "Terjadi kesalahan sistem."
                                     }
                                     isLoading = false

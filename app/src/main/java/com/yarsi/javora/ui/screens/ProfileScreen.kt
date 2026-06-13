@@ -39,6 +39,7 @@ fun ProfileScreen(
     totalXp: Int = 0,
     level: Int = 1,
     completedQuizzes: Int = 0,
+    userRank: String = "-",
     authRepository: AuthRepository? = null,
     onTabSelected: (String) -> Unit = {},
     onLogout: () -> Unit = {}
@@ -157,7 +158,7 @@ fun ProfileScreen(
                 // Stats Row
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ProfileStatCard(modifier = Modifier.weight(1f), icon = Icons.Default.School, value = completedQuizzes.toString(), label = "Kuis Selesai")
-                    ProfileStatCard(modifier = Modifier.weight(1f), icon = Icons.Default.BarChart, value = "#-", label = "Peringkat Global")
+                    ProfileStatCard(modifier = Modifier.weight(1f), icon = Icons.Default.BarChart, value = userRank, label = "Peringkat Global")
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))

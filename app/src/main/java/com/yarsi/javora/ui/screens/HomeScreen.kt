@@ -31,6 +31,7 @@ fun HomeScreen(
     userName: String = "Pemain",
     totalXp: Int = 0,
     level: Int = 1,
+    userRank: String = "-",
     progressMap: Map<String, Float> = emptyMap(),
     onTabSelected: (String) -> Unit = {},
     onStartQuiz: (String) -> Unit = {}
@@ -63,7 +64,7 @@ fun HomeScreen(
                 JavoraStandardHeader(showLevel = true, level = level, xp = totalXp.toString())
                 GreetingSection(userName)
                 Spacer(modifier = Modifier.height(24.dp))
-                StatsRow(accuracy, completedQuizzes)
+                StatsRow(accuracy, completedQuizzes, userRank)
                 Spacer(modifier = Modifier.height(24.dp))
                 ChallengeCard(onStartQuiz)
                 Spacer(modifier = Modifier.height(24.dp))
@@ -108,8 +109,8 @@ fun GreetingSection(userName: String) {
 }
 
 @Composable
-fun StatsRow(accuracy: Int, completedQuizzes: Int) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+fun StatsRow(accuracy: Int, completedQuizzes: Int, userRank: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         StatCard(
             modifier = Modifier.weight(1f),
             icon = Icons.Default.FlashOn,
@@ -118,9 +119,15 @@ fun StatsRow(accuracy: Int, completedQuizzes: Int) {
         )
         StatCard(
             modifier = Modifier.weight(1f),
+            icon = Icons.Default.BarChart,
+            value = userRank,
+            label = "RANK"
+        )
+        StatCard(
+            modifier = Modifier.weight(1f),
             icon = Icons.Default.Layers,
             value = completedQuizzes.toString(),
-            label = "KUIS TERJASA"
+            label = "KUIS"
         )
     }
 }
@@ -140,11 +147,11 @@ fun StatCard(modifier: Modifier, icon: ImageVector, value: String, label: String
         colors = CardDefaults.cardColors(containerColor = JavoraCardBg),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Icon(icon, contentDescription = null, tint = JavoraPurple, modifier = Modifier.size(20.dp))
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(value, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(label, color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Column(modifier = Modifier.padding(12.dp)) {
+            Icon(icon, contentDescription = null, tint = JavoraPurple, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

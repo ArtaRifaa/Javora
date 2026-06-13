@@ -12,8 +12,6 @@ import org.json.JSONObject
 class CatatanRepository(context: Context) {
     private val client = AppwriteClient.getClient(context)
     private val databases = Databases(client)
-    
-    // Inisialisasi SharedPreferences
     private val prefs = context.getSharedPreferences("javora_data", Context.MODE_PRIVATE)
 
     companion object {
@@ -21,8 +19,6 @@ class CatatanRepository(context: Context) {
         private const val COLLECTION_USERS = "users_profile"
     }
 
-    // --- LOKAL STORAGE (SHARED PREFERENCES) ---
-    
     fun saveLocalData(xp: Int, level: Int, name: String, progressJson: String) {
         prefs.edit().apply {
             putInt("xp", xp)
@@ -31,38 +27,24 @@ class CatatanRepository(context: Context) {
             putString("progress", progressJson)
             apply()
         }
-        android.util.Log.d("CatatanRepo", "Data disimpan ke LOKAL (SharedPrefs)")
     }
 
     fun getLocalXp(): Int = prefs.getInt("xp", 0)
     fun getLocalLevel(): Int = prefs.getInt("level", 1)
-    fun getLocalName(): String = prefs.getString("name", "Coders") ?: "Coders"
+    fun getLocalName(): String = prefs.getString("name", "Pemain") ?: "Pemain"
     fun getLocalProgress(): String = prefs.getString("progress", "{}") ?: "{}"
 
-    fun clearLocalData() {
-        prefs.edit().clear().apply()
-    }
-
-    // --- REMOTE STORAGE (APPWRITE) ---
+    fun clearLocalData() { prefs.edit().clear().apply() }
 
     suspend fun getUserProfile(userId: String): Map<String, Any>? {
         return try {
-            val document = databases.getDocument(
-                databaseId = DATABASE_ID,
-                collectionId = COLLECTION_USERS,
-                documentId = userId
-            )
-            document.data
-        } catch (e: Exception) {
-            try {
-                val queryResponse = databases.listDocuments(
-                    databaseId = DATABASE_ID,
-                    collectionId = COLLECTION_USERS,
-                    queries = listOf(Query.equal("user_id", userId))
-                )
-                if (queryResponse.documents.isNotEmpty()) queryResponse.documents[0].data else null
-            } catch (e2: Exception) { null }
-        }
+            val response = databases.listDocuments(DATABASE_ID, COLLECTION_USERS, listOf(Query.equal("user_id", userId)))
+            if (response.documents.isNotEmpty()) {
+                val data = response.documents[0].data
+                if (data.isNotEmpty()) return data
+            }
+            null
+        } catch (e: Exception) { null }
     }
 
     suspend fun saveUserProfile(
@@ -78,28 +60,38 @@ class CatatanRepository(context: Context) {
         progressMap.forEach { (key, value) -> json.put(key, value.toDouble()) }
         val progressStr = json.toString()
 
-        // 1. Simpan ke LOKAL dulu (Instan!)
         saveLocalData(totalXp, level, fullName, progressStr)
 
-        // 2. Simpan ke Appwrite
+        val data = mapOf(
+            "user_id" to userId,
+            "full_name" to fullName,
+            "total_xp" to totalXp,
+            "level" to level,
+            "title" to title,
+            "score" to score,
+            "progress_data" to progressStr
+        )
+
+        // PAKSA IZIN: Semua orang bisa baca, User ini bisa update
+        val perms = listOf(
+            Permission.read(Role.any()),
+            Permission.update(Role.user(userId)),
+            Permission.delete(Role.user(userId))
+        )
+
         return try {
-            val data = mapOf(
-                "user_id" to userId,
-                "full_name" to fullName,
-                "total_xp" to totalXp,
-                "level" to level,
-                "title" to title,
-                "score" to score,
-                "progress_data" to progressStr
-            )
-            val perms = listOf(Permission.read(Role.any()), Permission.update(Role.any()))
+            // Coba update dulu
             try {
                 databases.updateDocument(DATABASE_ID, COLLECTION_USERS, userId, data, perms)
             } catch (e: Exception) {
+                // Jika gagal (belum ada), buat baru
                 databases.createDocument(DATABASE_ID, COLLECTION_USERS, userId, data, perms)
             }
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) { 
+            android.util.Log.e("CatatanRepo", "Gagal simpan: ${e.message}")
+            false 
+        }
     }
 
     fun parseProgressData(jsonString: String?): Map<String, Float> {
