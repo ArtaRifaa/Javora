@@ -1,7 +1,12 @@
 package com.yarsi.javora.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -11,9 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,10 +44,138 @@ fun ProfileScreen(
     completedQuizzes: Int = 0,
     userRank: String = "-",
     authRepository: AuthRepository? = null,
+    onUpdateName: (String) -> Unit = {},
+    onUpdateAvatar: (String) -> Unit = {},
     onTabSelected: (String) -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var showResourcesDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var tempName by remember { mutableStateOf(userName) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { onUpdateAvatar(it.toString()) }
+    }
+
+    // --- DIALOG EDIT PROFIL ---
+    if (showEditProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditProfileDialog = false },
+            containerColor = Color(0xFF1E1E1E),
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text("Ubah Profil", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column {
+                    Text("Pilih aksi untuk profil Anda:", color = Color.Gray, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Tombol Ganti Foto
+                    OutlinedButton(
+                        onClick = { 
+                            launcher.launch("image/*")
+                            showEditProfileDialog = false 
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = JavoraOrange)
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Ganti Foto Profil")
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text("Ubah Nama Lengkap:", color = Color.Gray, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = tempName,
+                        onValueChange = { tempName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = JavoraOrange,
+                            unfocusedBorderColor = Color.DarkGray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onUpdateName(tempName)
+                        showEditProfileDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = JavoraOrange)
+                ) {
+                    Text("Simpan Nama", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditProfileDialog = false }) {
+                    Text("Batal", color = Color.Gray)
+                }
+            }
+        )
+    }
+
+    if (showResourcesDialog) {
+        AlertDialog(
+            onDismissRequest = { showResourcesDialog = false },
+            containerColor = Color(0xFF1E1E1E),
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text(
+                    "Sumber Belajar Java",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        "Klik tombol di bawah untuk mempelajari Java lebih lanjut melalui dokumentasi resmi dan tutorial terpercaya.",
+                        color = Color.LightGray,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    val openUrl = { url: String ->
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        context.startActivity(intent)
+                    }
+
+                    LearningResourceButton(
+                        text = "Dokumentasi Resmi Java",
+                        onClick = { openUrl("https://docs.oracle.com/en/java/") }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LearningResourceButton(
+                        text = "W3Schools Java Tutorial",
+                        onClick = { openUrl("https://www.w3schools.com/java/") }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LearningResourceButton(
+                        text = "Java Programming (GeeksforGeeks)",
+                        onClick = { openUrl("https://www.geeksforgeeks.org/java/") }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showResourcesDialog = false }) {
+                    Text("Tutup", color = Color.Gray)
+                }
+            }
+        )
+    }
 
     Scaffold(
         containerColor = JavoraDarkBg,
@@ -72,6 +203,10 @@ fun ProfileScreen(
                                 brush = JavoraGradient,
                                 shape = CircleShape
                             )
+                            .clickable {
+                                tempName = userName
+                                showEditProfileDialog = true
+                            }
                             .padding(4.dp)
                     ) {
                         Box(
@@ -80,7 +215,7 @@ fun ProfileScreen(
                                 .clip(CircleShape)
                                 .background(Color.DarkGray)
                         ) {
-                            if (avatarUrl != null) {
+                            if (!avatarUrl.isNullOrEmpty()) {
                                 AsyncImage(
                                     model = avatarUrl,
                                     contentDescription = "Profile Picture",
@@ -197,8 +332,13 @@ fun ProfileScreen(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                SettingsItem(Icons.Default.Badge, "Ubah Profil")
-                SettingsItem(Icons.Default.AutoStories, "Preferensi Belajar")
+                SettingsItem(Icons.Default.Badge, "Ubah Profil") {
+                    tempName = userName
+                    showEditProfileDialog = true
+                }
+                SettingsItem(Icons.Default.AutoStories, "Preferensi Belajar") {
+                    showResourcesDialog = true
+                }
                 SettingsItem(Icons.Default.Settings, "Pengaturan Aplikasi")
                 SettingsItem(Icons.AutoMirrored.Filled.Logout, "Keluar", isLogout = true) {
                     scope.launch {
@@ -210,6 +350,26 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
             }
+        }
+    }
+}
+
+@Composable
+fun LearningResourceButton(text: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(32.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = JavoraOrange),
+        border = androidx.compose.foundation.BorderStroke(1.dp, JavoraOrange)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

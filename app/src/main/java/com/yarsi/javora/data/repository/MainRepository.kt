@@ -2,17 +2,26 @@ package com.yarsi.javora.data.repository
 
 import android.content.Context
 import io.appwrite.services.Databases
+import io.appwrite.services.Realtime
 import io.appwrite.Query
 import com.yarsi.javora.data.remote.AppwriteClient
 
 class MainRepository(context: Context) {
     private val client = AppwriteClient.getClient(context)
     private val databases = Databases(client)
+    private val realtime = Realtime(client)
 
     companion object {
         private const val DATABASE_ID = "javora"
         private const val COLLECTION_USERS = "users_profile"
         private const val COLLECTION_TOPICS = "topics"
+        private const val BUCKET_AVATARS = "avatars"
+    }
+
+    fun getAvatarUrl(fileId: String): String {
+        val projectId = "6a106f5b0004e155b70f"
+        val endpoint = "https://sgp.cloud.appwrite.io/v1"
+        return "$endpoint/storage/buckets/$BUCKET_AVATARS/files/$fileId/view?project=$projectId"
     }
 
     suspend fun getTopics() = try {
@@ -24,24 +33,28 @@ class MainRepository(context: Context) {
             val response = databases.listDocuments(
                 databaseId = DATABASE_ID,
                 collectionId = COLLECTION_USERS,
-                queries = listOf(Query.orderDesc("score"), Query.limit(20)) 
+                queries = listOf(
+                    Query.orderDesc("score"),
+                    Query.limit(25) 
+                ) 
             )
             
-            android.util.Log.d("MainRepo", "--- LEADERBOARD FETCH SUCCESS ---")
-            android.util.Log.d("MainRepo", "Total Docs: ${response.documents.size}")
-            
-            response.documents.forEachIndexed { i, doc ->
-                android.util.Log.d("MainRepo", "Doc #$i ID: ${doc.id}")
-                android.util.Log.d("MainRepo", "Doc #$i Data: ${doc.data}")
-                if (doc.data.isEmpty()) {
-                    android.util.Log.e("MainRepo", "DOKUMEN ${doc.id} KOSONG! Periksa Settings -> Permissions -> Any (Read)!")
-                }
+            response.documents.map { doc ->
+                val data = doc.data.toMutableMap()
+                data["\$id"] = doc.id
+                data
             }
-            
-            response.documents.map { it.data }
         } catch (e: Exception) {
-            android.util.Log.e("MainRepo", "ERROR APPWRITE: ${e.message}")
-            emptyList()
+            android.util.Log.e("MainRepo", "Gagal ambil leaderboard: ${e.message}")
+            // Coba ambil tanpa sorting jika index belum siap
+            try {
+                val fallback = databases.listDocuments(DATABASE_ID, COLLECTION_USERS, listOf(Query.limit(25)))
+                fallback.documents.map { doc ->
+                    val data = doc.data.toMutableMap()
+                    data["\$id"] = doc.id
+                    data
+                }
+            } catch (e2: Exception) { emptyList() }
         }
     }
 
@@ -54,4 +67,8 @@ class MainRepository(context: Context) {
             (response.total + 1).toInt()
         } catch (e: Exception) { 1 }
     }
+
+    fun subscribeToLeaderboard(onUpdate: () -> Unit) = realtime.subscribe(
+        "databases.$DATABASE_ID.collections.$COLLECTION_USERS.documents"
+    ) { onUpdate() }
 }

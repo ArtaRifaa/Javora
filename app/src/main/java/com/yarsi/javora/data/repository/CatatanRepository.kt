@@ -2,21 +2,50 @@ package com.yarsi.javora.data.repository
 
 import android.content.Context
 import io.appwrite.services.Databases
+import io.appwrite.services.Storage
 import io.appwrite.Query
 import io.appwrite.Permission
 import io.appwrite.Role
+import io.appwrite.ID
+import io.appwrite.models.InputFile
 import io.appwrite.exceptions.AppwriteException
 import com.yarsi.javora.data.remote.AppwriteClient
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 
-class CatatanRepository(context: Context) {
+class CatatanRepository(private val context: Context) {
     private val client = AppwriteClient.getClient(context)
     private val databases = Databases(client)
+    private val storage = Storage(client)
     private val prefs = context.getSharedPreferences("javora_data", Context.MODE_PRIVATE)
 
     companion object {
         private const val DATABASE_ID = "javora"
         private const val COLLECTION_USERS = "users_profile"
+        private const val BUCKET_AVATARS = "avatars"
+    }
+
+    suspend fun uploadAvatar(uri: android.net.Uri): String? {
+        return try {
+            val contentResolver = context.contentResolver
+            val inputStream = contentResolver.openInputStream(uri) ?: return null
+            val file = File(context.cacheDir, "temp_avatar.jpg")
+            val outputStream = FileOutputStream(file)
+            inputStream.use { input -> outputStream.use { output -> input.copyTo(output) } }
+
+            val response = storage.createFile(
+                bucketId = BUCKET_AVATARS,
+                fileId = ID.unique(),
+                file = InputFile.fromFile(file),
+                permissions = listOf(Permission.read(Role.any()))
+            )
+            file.delete()
+            response.id
+        } catch (e: Exception) {
+            android.util.Log.e("CatatanRepo", "Upload Gagal: ${e.message}")
+            null
+        }
     }
 
     fun saveLocalData(xp: Int, level: Int, name: String, progressJson: String) {
@@ -38,12 +67,16 @@ class CatatanRepository(context: Context) {
 
     suspend fun getUserProfile(userId: String): Map<String, Any>? {
         return try {
-            val response = databases.listDocuments(DATABASE_ID, COLLECTION_USERS, listOf(Query.equal("user_id", userId)))
-            if (response.documents.isNotEmpty()) {
-                val data = response.documents[0].data
-                if (data.isNotEmpty()) return data
-            }
-            null
+            try {
+                val doc = databases.getDocument(DATABASE_ID, COLLECTION_USERS, userId)
+                if (doc.data.isNotEmpty()) return doc.data
+            } catch (e: Exception) { }
+
+            val response = databases.listDocuments(
+                DATABASE_ID, COLLECTION_USERS, 
+                listOf(Query.equal("user_id", userId), Query.limit(1))
+            )
+            if (response.documents.isNotEmpty()) response.documents[0].data else null
         } catch (e: Exception) { null }
     }
 
@@ -54,7 +87,8 @@ class CatatanRepository(context: Context) {
         level: Int,
         title: String,
         score: Int,
-        progressMap: Map<String, Float>
+        progressMap: Map<String, Float>,
+        avatarId: String? = null
     ): Boolean {
         val json = JSONObject()
         progressMap.forEach { (key, value) -> json.put(key, value.toDouble()) }
@@ -62,7 +96,7 @@ class CatatanRepository(context: Context) {
 
         saveLocalData(totalXp, level, fullName, progressStr)
 
-        val data = mapOf(
+        val data = mutableMapOf(
             "user_id" to userId,
             "full_name" to fullName,
             "total_xp" to totalXp,
@@ -71,25 +105,26 @@ class CatatanRepository(context: Context) {
             "score" to score,
             "progress_data" to progressStr
         )
+        if (avatarId != null) data["avatar_id"] = avatarId
 
-        // PAKSA IZIN: Semua orang bisa baca, User ini bisa update
-        val perms = listOf(
-            Permission.read(Role.any()),
-            Permission.update(Role.user(userId)),
-            Permission.delete(Role.user(userId))
-        )
+        val perms = listOf(Permission.read(Role.any()), Permission.update(Role.user(userId)))
+
+        android.util.Log.d("CatatanRepo", "Kirim ke DB: $DATABASE_ID, Kolom: total_xp=$totalXp, score=$score")
 
         return try {
-            // Coba update dulu
             try {
                 databases.updateDocument(DATABASE_ID, COLLECTION_USERS, userId, data, perms)
+                android.util.Log.d("CatatanRepo", "Update Appwrite BERHASIL")
             } catch (e: Exception) {
-                // Jika gagal (belum ada), buat baru
+                android.util.Log.d("CatatanRepo", "Update gagal, mencoba Create... Pesan: ${e.message}")
                 databases.createDocument(DATABASE_ID, COLLECTION_USERS, userId, data, perms)
+                android.util.Log.d("CatatanRepo", "Create Appwrite BERHASIL")
             }
             true
         } catch (e: Exception) { 
-            android.util.Log.e("CatatanRepo", "Gagal simpan: ${e.message}")
+            android.util.Log.e("CatatanRepo", "EROR KRITIKAL: ${e.message}")
+            // Jika muncul 'Collection not found', berarti ID COLLECTION_USERS salah.
+            // Jika muncul 'Permission denied', berarti tombol Update di Dashboard belum diklik.
             false 
         }
     }

@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.yarsi.javora.data.repository.AuthRepository
 import com.yarsi.javora.data.repository.CatatanRepository
 import com.yarsi.javora.data.repository.MainRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -40,7 +41,10 @@ class UserViewModel(
     private val _userRank = mutableIntStateOf(0)
     val userRank: State<Int> = _userRank
 
-    private fun saveToLocal(userId: String, name: String, xp: Int, level: Int, progressMap: Map<String, Float>) {
+    private val _userAvatar = mutableStateOf<String?>(null)
+    val userAvatar: State<String?> = _userAvatar
+
+    private fun saveToLocal(userId: String, name: String, xp: Int, level: Int, progressMap: Map<String, Float>, avatar: String? = null) {
         val progressJson = JSONObject()
         progressMap.forEach { (key, value) -> progressJson.put(key, value.toDouble()) }
         prefs.edit()
@@ -48,6 +52,7 @@ class UserViewModel(
             .putInt("${userId}_xp", xp)
             .putInt("${userId}_level", level)
             .putString("${userId}_progress", progressJson.toString())
+            .putString("${userId}_avatar", avatar ?: _userAvatar.value)
             .putBoolean("has_data_$userId", true)
             .apply()
     }
@@ -58,11 +63,13 @@ class UserViewModel(
         val name = prefs.getString("${userId}_name", "Pemain") ?: "Pemain"
         val xp = prefs.getInt("${userId}_xp", 0)
         val level = prefs.getInt("${userId}_level", 1)
+        val avatar = prefs.getString("${userId}_avatar", null)
         val progressJson = prefs.getString("${userId}_progress", "{}")
         
         _userName.value = name
         _userTotalXp.intValue = xp
         _userLevel.intValue = level
+        _userAvatar.value = avatar
         
         if (!progressJson.isNullOrEmpty()) {
             try {
@@ -106,16 +113,30 @@ class UserViewModel(
                     val remoteLevel = ((remoteXp / 500) + 1).coerceAtLeast(1)
                     val remoteProgress = catatanRepository.parseProgressData(profile["progress_data"]?.toString())
                     
-                    // AMBIL NILAI TERTINGGI (Biar gak rugi)
+                    // Ambil Avatar ID dari database jika ada
+                    val remoteAvatarId = profile["avatar_id"]?.toString()
+                    val remoteAvatarUrl = if (!remoteAvatarId.isNullOrEmpty()) {
+                        mainRepository.getAvatarUrl(remoteAvatarId)
+                    } else null
+                    
+                    // --- SINKRONISASI PINTAR ---
                     val finalXp = maxOf(remoteXp, _userTotalXp.intValue)
                     val finalLevel = maxOf(remoteLevel, _userLevel.intValue)
+                    val finalAvatar = remoteAvatarUrl ?: _userAvatar.value
                     
                     _userName.value = remoteName
                     _userTotalXp.intValue = finalXp
                     _userLevel.intValue = finalLevel
                     _progressMap.value = remoteProgress
+                    _userAvatar.value = finalAvatar
                     
-                    saveToLocal(userId, remoteName, finalXp, finalLevel, remoteProgress)
+                    saveToLocal(userId, remoteName, finalXp, finalLevel, remoteProgress, finalAvatar)
+                }
+else if (nameFromAccount != null) {
+                    // Profil belum ada di DB, buat sekarang agar nama muncul di Peringkat
+                    _userName.value = nameFromAccount
+                    catatanRepository.saveUserProfile(userId, nameFromAccount, 0, 1, "Java Coder", 0, emptyMap())
+                    saveToLocal(userId, nameFromAccount, 0, 1, emptyMap())
                 }
             }
         } catch (e: Exception) {
@@ -143,9 +164,83 @@ class UserViewModel(
             
             val userId = authRepository.getCurrentUserId()
             if (userId != null) {
+                // Simpan Lokal
                 saveToLocal(userId, _userName.value, newTotalXp, newLevel, newMap)
-                catatanRepository.saveUserProfile(userId, _userName.value, newTotalXp, newLevel, "ANTUSIAS JAVA", newTotalXp, newMap)
-                loadUserRank()
+                
+                // Simpan Appwrite
+                try {
+                    val success = catatanRepository.saveUserProfile(userId, _userName.value, newTotalXp, newLevel, "ANTUSIAS JAVA", newTotalXp, newMap)
+                    if (success) {
+                        android.util.Log.d("UserVM", "Berhasil simpan skor baru ke server: $newTotalXp")
+                        // Jeda sejenak agar Appwrite menyelesaikan pembaruan index
+                        delay(1000)
+                        loadUserRank()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("UserVM", "Gagal simpan skor ke server: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun updateUserName(newName: String) {
+        viewModelScope.launch {
+            if (newName.isBlank()) return@launch
+            
+            val userId = authRepository.getCurrentUserId() ?: return@launch
+            
+            // 1. Update State UI
+            _userName.value = newName
+            
+            // 2. Simpan ke Lokal
+            saveToLocal(userId, newName, _userTotalXp.intValue, _userLevel.intValue, _progressMap.value, _userAvatar.value)
+            
+            // 3. Simpan ke Appwrite
+            try {
+                catatanRepository.saveUserProfile(
+                    userId = userId,
+                    fullName = newName,
+                    totalXp = _userTotalXp.intValue,
+                    level = _userLevel.intValue,
+                    title = "ANTUSIAS JAVA",
+                    score = _userTotalXp.intValue,
+                    progressMap = _progressMap.value
+                )
+                android.util.Log.d("UserVM", "Nama berhasil diupdate ke: $newName")
+            } catch (e: Exception) {
+                android.util.Log.e("UserVM", "Gagal update nama ke server: ${e.message}")
+            }
+        }
+    }
+
+    fun updateUserAvatar(newAvatarUri: String) {
+        viewModelScope.launch {
+            val userId = authRepository.getCurrentUserId() ?: return@launch
+            
+            // 1. Upload ke Appwrite Storage
+            val fileId = catatanRepository.uploadAvatar(android.net.Uri.parse(newAvatarUri))
+            
+            if (fileId != null) {
+                val realUrl = mainRepository.getAvatarUrl(fileId)
+                
+                // 2. Update State UI
+                _userAvatar.value = realUrl
+                
+                // 3. Simpan ke Lokal
+                saveToLocal(userId, _userName.value, _userTotalXp.intValue, _userLevel.intValue, _progressMap.value, realUrl)
+                
+                // 4. Simpan ke Database
+                catatanRepository.saveUserProfile(
+                    userId = userId,
+                    fullName = _userName.value,
+                    totalXp = _userTotalXp.intValue,
+                    level = _userLevel.intValue,
+                    title = "ANTUSIAS JAVA",
+                    score = _userTotalXp.intValue,
+                    progressMap = _progressMap.value,
+                    avatarId = fileId
+                )
+                android.util.Log.d("UserVM", "Avatar berhasil diupdate ke server: $fileId")
             }
         }
     }
@@ -159,6 +254,7 @@ class UserViewModel(
     }
 
     suspend fun loadUserRank() {
+        val userId = authRepository.getCurrentUserId() ?: return
         val rank = mainRepository.getUserRank(_userTotalXp.intValue)
         _userRank.intValue = rank
     }
@@ -171,6 +267,7 @@ class UserViewModel(
                 val newMap = _progressMap.value.toMutableMap().apply { put(topic, progress) }
                 _progressMap.value = newMap
                 saveToLocal(userId, _userName.value, _userTotalXp.intValue, _userLevel.intValue, newMap)
+                catatanRepository.saveUserProfile(userId, _userName.value, _userTotalXp.intValue, _userLevel.intValue, "ANTUSIAS JAVA", _userTotalXp.intValue, newMap)
             }
         }
     }
@@ -181,6 +278,7 @@ class UserViewModel(
             val newMap = _progressMap.value.toMutableMap().apply { remove(topic) }
             _progressMap.value = newMap
             saveToLocal(userId, _userName.value, _userTotalXp.intValue, _userLevel.intValue, newMap)
+            catatanRepository.saveUserProfile(userId, _userName.value, _userTotalXp.intValue, _userLevel.intValue, "ANTUSIAS JAVA", _userTotalXp.intValue, newMap)
         }
     }
 }

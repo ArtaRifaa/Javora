@@ -67,12 +67,11 @@ fun MainNavigation() {
     var currentTopic by remember { mutableStateOf("") }
 
     val userName by userViewModel.userName
+    val userAvatar by userViewModel.userAvatar
     val userTotalXp by userViewModel.userTotalXp
     val userLevel by userViewModel.userLevel
     val progressMap by userViewModel.progressMap
     val userRank by userViewModel.userRank
-
-    var leaderboardUsers by remember { mutableStateOf<List<com.yarsi.javora.data.RankUser>>(emptyList()) }
 
     val scope = rememberCoroutineScope()
 
@@ -87,6 +86,12 @@ fun MainNavigation() {
                 delay(2000)
                 currentScreen = "login"
             }
+        }
+    }
+
+    LaunchedEffect(currentScreen) {
+        if (currentScreen == "rank") {
+            userViewModel.loadUserRank()
         }
     }
 
@@ -141,10 +146,13 @@ fun MainNavigation() {
                             userViewModel.resetProgress(topic)
                         },
                         onQuizComplete = { finalScore ->
-                            userViewModel.updateQuizResult(currentTopic, finalScore, quizQuestions.size)
-                            quizQuestions = emptyList()
-                            currentTopic = ""
-                            currentScreen = "geranda"
+                            scope.launch {
+                                userViewModel.updateQuizResult(currentTopic, finalScore, quizQuestions.size)
+                                delay(500)
+                                quizQuestions = emptyList()
+                                currentTopic = ""
+                                currentScreen = "geranda"
+                            }
                         },
                         onQuizFailed = {
                             quizQuestions = emptyList()
@@ -162,11 +170,14 @@ fun MainNavigation() {
                     )
                     "profile" -> ProfileScreen(
                         userName = userName,
+                        avatarUrl = userAvatar,
                         totalXp = userTotalXp,
                         level = userLevel,
                         completedQuizzes = progressMap.values.count { it > 0f },
                         userRank = if (userRank > 0) "#$userRank" else "-",
                         authRepository = authRepository,
+                        onUpdateName = { userViewModel.updateUserName(it) },
+                        onUpdateAvatar = { userViewModel.updateUserAvatar(it) },
                         onTabSelected = { currentScreen = it.lowercase() },
                         onLogout = {
                             userViewModel.logout()
@@ -256,43 +267,66 @@ fun RankNavigationWrapper(
     var loadError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    suspend fun loadData(isRefresh: Boolean = false) {
-        if (isRefresh) isRefreshing = true
-        loadError = null
-        try {
-            val userId = authRepository.getCurrentUserId()
-            val rawData = mainRepository.getLeaderboard()
-            
-            leaderboardUsers = rawData.mapIndexed { index, map ->
-                val rawName = map["full_name"]?.toString()
-                val rawScore = map["score"] ?: map["total_xp"] ?: 0
-                
-                com.yarsi.javora.data.RankUser(
-                    rank = index + 1,
-                    name = when {
-                        !rawName.isNullOrEmpty() -> rawName
-                        map["user_id"] == userId -> userViewModel.userName.value
-                        else -> "Pemain #${index+1}"
-                    },
-                    score = when(rawScore) {
-                        is Number -> rawScore.toInt().toString()
-                        is String -> rawScore.toDoubleOrNull()?.toInt()?.toString() ?: "0"
-                        else -> "0"
-                    },
-                    subtitle = if (map.isEmpty()) "Gagal membaca profil" else "Java Coder",
-                    isCurrentUser = map["user_id"] == userId
-                )
-            }
-            userViewModel.loadUserRank()
-        } catch (e: Exception) {
-            loadError = "Gagal memuat peringkat."
-        } finally {
-            rankLoadDone = true
-            isRefreshing = false
-        }
+    // Ambil ID user sekarang untuk mencocokkan data
+    val currentUserIdState = remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        currentUserIdState.value = authRepository.getCurrentUserId()
     }
 
-    LaunchedEffect(Unit) {
+        suspend fun loadData(isRefresh: Boolean = false) {
+            if (isRefresh) isRefreshing = true
+            loadError = null
+            try {
+                // Ambil ID user real-time setiap kali load data
+                val userId = authRepository.getCurrentUserId() ?: ""
+                val rawData = mainRepository.getLeaderboard()
+                
+                android.util.Log.d("JavoraRank", "Sync DB: Dapat ${rawData.size} data. UserID: $userId")
+                
+                leaderboardUsers = rawData.mapIndexed { index, map ->
+                    val rawName = map["full_name"]?.toString()
+                    val rawScore = map["score"] ?: map["total_xp"] ?: 0
+                    val docId = map["\$id"]?.toString() ?: ""
+                    
+                    // Cek apakah ini saya
+                    val isMe = docId == userId || map["user_id"]?.toString() == userId
+                    
+                    com.yarsi.javora.data.RankUser(
+                        rank = index + 1,
+                        name = when {
+                            isMe -> userViewModel.userName.value // Nama kamu PASTI asli dari HP
+                            !rawName.isNullOrEmpty() -> rawName // Nama orang lain dari database
+                            else -> "Pemain #${index+1}" // Atribut tersembunyi/null
+                        },
+                        score = when {
+                            isMe -> userTotalXp.toString() // Skor kamu PASTI asli dari HP
+                            rawScore is Number -> rawScore.toInt().toString()
+                            rawScore is String -> rawScore.toDoubleOrNull()?.toInt()?.toString() ?: "0"
+                            else -> "0"
+                        },
+                        subtitle = if (!rawName.isNullOrEmpty()) "Java Coder" else "Profil Terkunci",
+                        isCurrentUser = isMe
+                    )
+                }
+                userViewModel.loadUserRank()
+            } catch (e: Exception) {
+                android.util.Log.e("JavoraDebug", "Gagal muat rank: ${e.message}")
+                loadError = "Gagal memuat peringkat."
+            } finally {
+                rankLoadDone = true
+                isRefreshing = false
+            }
+        }
+
+    // REAL-TIME: Dengerin perubahan di database Appwrite
+    DisposableEffect(currentUserIdState.value) {
+        val subscription = mainRepository.subscribeToLeaderboard {
+            scope.launch { loadData(isRefresh = false) }
+        }
+        onDispose { subscription.close() }
+    }
+
+    LaunchedEffect(currentUserIdState.value) {
         loadData()
     }
 
