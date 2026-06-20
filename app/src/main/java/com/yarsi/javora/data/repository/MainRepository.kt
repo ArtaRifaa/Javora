@@ -34,21 +34,25 @@ class MainRepository(context: Context) {
                 databaseId = DATABASE_ID,
                 collectionId = COLLECTION_USERS,
                 queries = listOf(
-                    Query.orderDesc("score"),
+                    Query.orderDesc("total_xp"), // Gunakan total_xp untuk sorting
                     Query.limit(25) 
                 ) 
             )
             
             response.documents.map { doc ->
+                // Gunakan Map asli dari Appwrite dan tambahkan ID dokumen
                 val data = doc.data.toMutableMap()
                 data["\$id"] = doc.id
                 data
             }
         } catch (e: Exception) {
             android.util.Log.e("MainRepo", "Gagal ambil leaderboard: ${e.message}")
-            // Coba ambil tanpa sorting jika index belum siap
+            // Fallback jika total_xp tidak terindex
             try {
-                val fallback = databases.listDocuments(DATABASE_ID, COLLECTION_USERS, listOf(Query.limit(25)))
+                val fallback = databases.listDocuments(
+                    DATABASE_ID, COLLECTION_USERS,
+                    listOf(Query.orderDesc("score"), Query.limit(25))
+                )
                 fallback.documents.map { doc ->
                     val data = doc.data.toMutableMap()
                     data["\$id"] = doc.id
@@ -70,5 +74,8 @@ class MainRepository(context: Context) {
 
     fun subscribeToLeaderboard(onUpdate: () -> Unit) = realtime.subscribe(
         "databases.$DATABASE_ID.collections.$COLLECTION_USERS.documents"
-    ) { onUpdate() }
+    ) { 
+        android.util.Log.d("MainRepo", "Realtime update received!")
+        onUpdate() 
+    }
 }

@@ -48,6 +48,16 @@ class CatatanRepository(private val context: Context) {
         }
     }
 
+    fun saveLocalDataWithId(userId: String, xp: Int, level: Int, name: String, progressJson: String) {
+        prefs.edit().apply {
+            putInt("${userId}_xp", xp)
+            putInt("${userId}_level", level)
+            putString("${userId}_name", name)
+            putString("${userId}_progress", progressJson)
+            apply()
+        }
+    }
+
     fun saveLocalData(xp: Int, level: Int, name: String, progressJson: String) {
         prefs.edit().apply {
             putInt("xp", xp)
@@ -58,10 +68,10 @@ class CatatanRepository(private val context: Context) {
         }
     }
 
-    fun getLocalXp(): Int = prefs.getInt("xp", 0)
-    fun getLocalLevel(): Int = prefs.getInt("level", 1)
-    fun getLocalName(): String = prefs.getString("name", "Pemain") ?: "Pemain"
-    fun getLocalProgress(): String = prefs.getString("progress", "{}") ?: "{}"
+    fun getLocalXp(userId: String? = null): Int = if (userId != null) prefs.getInt("${userId}_xp", 0) else prefs.getInt("xp", 0)
+    fun getLocalLevel(userId: String? = null): Int = if (userId != null) prefs.getInt("${userId}_level", 1) else prefs.getInt("level", 1)
+    fun getLocalName(userId: String? = null): String = if (userId != null) prefs.getString("${userId}_name", "Pemain") ?: "Pemain" else prefs.getString("name", "Pemain") ?: "Pemain"
+    fun getLocalProgress(userId: String? = null): String = if (userId != null) prefs.getString("${userId}_progress", "{}") ?: "{}" else prefs.getString("progress", "{}") ?: "{}"
 
     fun clearLocalData() { prefs.edit().clear().apply() }
 
@@ -107,7 +117,12 @@ class CatatanRepository(private val context: Context) {
         )
         if (avatarId != null) data["avatar_id"] = avatarId
 
-        val perms = listOf(Permission.read(Role.any()), Permission.update(Role.user(userId)))
+        // Izinkan SEMUA ORANG untuk membaca data ini agar muncul di Scoreboard
+        // Dan izinkan HANYA PEMILIKNYA untuk mengupdate data ini
+        val perms = listOf(
+            Permission.read(Role.any()), 
+            Permission.update(Role.user(userId))
+        )
 
         android.util.Log.d("CatatanRepo", "Kirim ke DB: $DATABASE_ID, Kolom: total_xp=$totalXp, score=$score")
 

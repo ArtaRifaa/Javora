@@ -179,7 +179,7 @@ fun ProfileScreen(
 
     Scaffold(
         containerColor = JavoraDarkBg,
-        topBar = { JavoraStandardHeader(showLevel = true, level = level, xp = totalXp.toString()) },
+        topBar = { JavoraStandardHeader(avatarUrl = avatarUrl, showLevel = true, level = level, xp = totalXp.toString()) },
         bottomBar = { JavoraBottomNavigation(selectedTab = "Profile", onTabSelected = onTabSelected) }
     ) { padding ->
         LazyColumn(
@@ -339,7 +339,6 @@ fun ProfileScreen(
                 SettingsItem(Icons.Default.AutoStories, "Preferensi Belajar") {
                     showResourcesDialog = true
                 }
-                SettingsItem(Icons.Default.Settings, "Pengaturan Aplikasi")
                 SettingsItem(Icons.AutoMirrored.Filled.Logout, "Keluar", isLogout = true) {
                     scope.launch {
                         if (authRepository?.logout() == true) {

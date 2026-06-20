@@ -28,13 +28,14 @@ fun RankScreen(
     users: List<RankUser> = emptyList(),
     currentUserRank: Int? = null,
     currentUserScore: String? = null,
+    avatarUrl: String? = null,
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
     onTabSelected: (String) -> Unit = {}
 ) {
     Scaffold(
         containerColor = JavoraDarkBg,
-        topBar = { JavoraStandardHeader() },
+        topBar = { JavoraStandardHeader(avatarUrl = avatarUrl) },
         bottomBar = { JavoraBottomNavigation(selectedTab = "Rank", onTabSelected = onTabSelected) }
     ) { padding ->
         LazyColumn(

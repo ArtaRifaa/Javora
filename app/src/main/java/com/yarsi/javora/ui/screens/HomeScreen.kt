@@ -29,6 +29,7 @@ import com.yarsi.javora.ui.theme.*
 @Composable
 fun HomeScreen(
     userName: String = "Pemain",
+    avatarUrl: String? = null,
     totalXp: Int = 0,
     level: Int = 1,
     userRank: String = "-",
@@ -61,7 +62,12 @@ fun HomeScreen(
                 .padding(horizontal = 20.dp)
         ) {
             item {
-                JavoraStandardHeader(showLevel = true, level = level, xp = totalXp.toString())
+                JavoraStandardHeader(
+                    avatarUrl = avatarUrl,
+                    showLevel = true,
+                    level = level,
+                    xp = totalXp.toString()
+                )
                 GreetingSection(userName)
                 Spacer(modifier = Modifier.height(24.dp))
                 StatsRow(accuracy, completedQuizzes, userRank)

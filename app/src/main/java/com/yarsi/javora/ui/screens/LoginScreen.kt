@@ -43,6 +43,7 @@ fun LoginScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var rememberMe by remember { mutableStateOf(true) }
 
     Box(
         modifier = Modifier
@@ -181,7 +182,27 @@ fun LoginScreen(
                     )
 
                     if (isLoginMode) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = rememberMe,
+                                onCheckedChange = { rememberMe = it },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = JavoraOrange,
+                                    uncheckedColor = Color.Gray,
+                                    checkmarkColor = Color.Black
+                                )
+                            )
+                            Text(
+                                text = "Ingat saya 30 hari",
+                                color = Color.LightGray,
+                                fontSize = 14.sp,
+                                modifier = Modifier.clickable { rememberMe = !rememberMe }
+                            )
+                        }
+
                         TextButton(
                             onClick = { /* TODO */ },
                             modifier = Modifier.align(Alignment.End)

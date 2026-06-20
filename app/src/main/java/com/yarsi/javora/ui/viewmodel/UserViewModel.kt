@@ -47,12 +47,16 @@ class UserViewModel(
     private fun saveToLocal(userId: String, name: String, xp: Int, level: Int, progressMap: Map<String, Float>, avatar: String? = null) {
         val progressJson = JSONObject()
         progressMap.forEach { (key, value) -> progressJson.put(key, value.toDouble()) }
+        
+        // Simpan juga ke CatatanRepository agar sinkron (dengan prefix)
+        catatanRepository.saveLocalDataWithId(userId, xp, level, name, progressJson.toString())
+        
         prefs.edit()
             .putString("${userId}_name", name)
             .putInt("${userId}_xp", xp)
             .putInt("${userId}_level", level)
             .putString("${userId}_progress", progressJson.toString())
-            .putString("${userId}_avatar", avatar ?: _userAvatar.value)
+            .putString("${userId}_avatar", avatar) // Jangan fallback ke _userAvatar.value
             .putBoolean("has_data_$userId", true)
             .apply()
     }
@@ -88,10 +92,22 @@ class UserViewModel(
 
     suspend fun loadUserData() {
         _isLoading.value = true
-        val userId = authRepository.getCurrentUserId() ?: return
+        
+        // --- RESET STATE SEBELUM LOAD DATA BARU ---
+        _userName.value = "..."
+        _userTotalXp.intValue = 0
+        _userLevel.intValue = 1
+        _userAvatar.value = null
+        _progressMap.value = emptyMap()
+        _userRank.intValue = 0
 
-        // 1. Muat dari HP dulu (INSTAN)
-        loadFromLocal(userId)
+        val userId = authRepository.getCurrentUserId() ?: run {
+            _isLoading.value = false
+            return
+        }
+
+        // 1. Muat dari HP dulu (INSTAN) agar jika server lemot, user tidak melihat 0 XP
+        val hasLocal = loadFromLocal(userId)
         
         // 2. Ambil dari Appwrite (SINKRONISASI)
         try {
@@ -99,7 +115,10 @@ class UserViewModel(
             val profile = catatanRepository.getUserProfile(userId)
             
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                if (nameFromAccount != null) _userName.value = nameFromAccount
+                // Prioritaskan Nama dari Akun Appwrite (yang dipakai saat Login/Daftar)
+                if (nameFromAccount != null && _userName.value == "...") {
+                    _userName.value = nameFromAccount
+                }
 
                 if (profile != null && profile.isNotEmpty()) {
                     val rawXp = profile["total_xp"] ?: profile["score"] ?: 0
@@ -109,34 +128,41 @@ class UserViewModel(
                         else -> 0
                     }
                     
-                    val remoteName = profile["full_name"]?.toString() ?: nameFromAccount ?: _userName.value
+                    // Gunakan nama dari profil DB jika ada, jika tidak pakai dari Akun, jika tidak pakai yang sudah ada
+                    val remoteName = profile["full_name"]?.toString() 
+                        ?: profile["fullName"]?.toString()
+                        ?: profile["name"]?.toString()
+                        ?: nameFromAccount 
+                        ?: _userName.value
+                    
                     val remoteLevel = ((remoteXp / 500) + 1).coerceAtLeast(1)
                     val remoteProgress = catatanRepository.parseProgressData(profile["progress_data"]?.toString())
                     
-                    // Ambil Avatar ID dari database jika ada
                     val remoteAvatarId = profile["avatar_id"]?.toString()
                     val remoteAvatarUrl = if (!remoteAvatarId.isNullOrEmpty()) {
                         mainRepository.getAvatarUrl(remoteAvatarId)
                     } else null
                     
                     // --- SINKRONISASI PINTAR ---
-                    val finalXp = maxOf(remoteXp, _userTotalXp.intValue)
-                    val finalLevel = maxOf(remoteLevel, _userLevel.intValue)
-                    val finalAvatar = remoteAvatarUrl ?: _userAvatar.value
+                    // Jika data lokal lebih besar (mungkin baru saja selesai kuis tapi belum sempat sync sempurna), ambil lokal.
+                    // Tapi jika remote lebih besar, ikuti remote.
+                    val localXp = _userTotalXp.intValue
+                    val finalXp = if (remoteXp > localXp) remoteXp else localXp
+                    val finalLevel = if (finalXp > localXp) remoteLevel else _userLevel.intValue
+                    val finalName = if (remoteName != "Pemain" && remoteName != "...") remoteName else (if (_userName.value != "...") _userName.value else (nameFromAccount ?: "Pemain"))
                     
-                    _userName.value = remoteName
+                    _userName.value = finalName
                     _userTotalXp.intValue = finalXp
                     _userLevel.intValue = finalLevel
                     _progressMap.value = remoteProgress
-                    _userAvatar.value = finalAvatar
+                    _userAvatar.value = remoteAvatarUrl
                     
-                    saveToLocal(userId, remoteName, finalXp, finalLevel, remoteProgress, finalAvatar)
-                }
-else if (nameFromAccount != null) {
-                    // Profil belum ada di DB, buat sekarang agar nama muncul di Peringkat
-                    _userName.value = nameFromAccount
-                    catatanRepository.saveUserProfile(userId, nameFromAccount, 0, 1, "Java Coder", 0, emptyMap())
-                    saveToLocal(userId, nameFromAccount, 0, 1, emptyMap())
+                    saveToLocal(userId, finalName, finalXp, finalLevel, remoteProgress, remoteAvatarUrl)
+                } else if (nameFromAccount != null || _userName.value != "...") {
+                    // Profil belum ada di DB, buat baru menggunakan nama dari Akun Appwrite atau State yang ada
+                    val finalName = if (_userName.value != "...") _userName.value else (nameFromAccount ?: "Pemain")
+                    catatanRepository.saveUserProfile(userId, finalName, _userTotalXp.intValue, _userLevel.intValue, "Java Coder", _userTotalXp.intValue, _progressMap.value)
+                    saveToLocal(userId, finalName, _userTotalXp.intValue, _userLevel.intValue, _progressMap.value, _userAvatar.value)
                 }
             }
         } catch (e: Exception) {
@@ -250,7 +276,11 @@ else if (nameFromAccount != null) {
         _userTotalXp.intValue = 0
         _userLevel.intValue = 1
         _userName.value = "..."
+        _userAvatar.value = null
         _userRank.intValue = 0
+        
+        // Opsional: Hapus flag data aktif agar tidak bentrok
+        // prefs.edit().clear().apply() // Hati-hati, ini hapus data semua user di HP
     }
 
     suspend fun loadUserRank() {

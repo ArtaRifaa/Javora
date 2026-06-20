@@ -28,6 +28,7 @@ import com.yarsi.javora.ui.theme.*
 fun QuizScreen(
     topicName: String = "",
     questions: List<QuizQuestion>,
+    avatarUrl: String? = null,
     progressMap: Map<String, Float> = emptyMap(),
     onQuizComplete: (Int) -> Unit = {},
     onQuizFailed: () -> Unit = {},
@@ -90,7 +91,7 @@ fun QuizScreen(
 
     if (questions.isEmpty()) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-            JavoraStandardHeader()
+            JavoraStandardHeader(avatarUrl = avatarUrl)
             Spacer(modifier = Modifier.height(16.dp))
             Text("Pilih Tantangan", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text("Lanjutkan progresmu atau mulai topik baru", color = Color.Gray, fontSize = 14.sp)
@@ -153,7 +154,13 @@ fun QuizScreen(
         topBar = { 
             Column {
                 Row(modifier = Modifier.fillMaxWidth().padding(end = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.weight(1f)) { JavoraStandardHeader(showScore = true, score = score.toString()) }
+                    Box(modifier = Modifier.weight(1f)) { 
+                        JavoraStandardHeader(
+                            avatarUrl = avatarUrl,
+                            showScore = true, 
+                            score = score.toString()
+                        ) 
+                    }
                     IconButton(onClick = { showExitDialog = true }) { Icon(Icons.Default.Close, contentDescription = "Exit", tint = Color.Gray) }
                 }
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

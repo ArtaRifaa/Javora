@@ -1,6 +1,7 @@
 package com.yarsi.javora.data.remote
 
 import android.content.Context
+import android.util.Log
 import io.appwrite.services.Account
 import io.appwrite.services.Databases
 import io.appwrite.ID
@@ -15,75 +16,26 @@ class AppwriteService(context: Context) {
 
     companion object {
         private const val DATABASE_ID = "javora"
-        private const val COLLECTION_TOPICS = "topics"
         private const val COLLECTION_USERS = "users_profile"
-        private const val COLLECTION_RANKINGS = "rankings"
-        private const val BUCKET_AVATARS = "avatars"
     }
 
-    fun getAvatarUrl(fileId: String): String {
-        val projectId = "6a106f5b0004e155b70f"
-        val endpoint = "https://sgp.cloud.appwrite.io/v1"
-        return "$endpoint/storage/buckets/$BUCKET_AVATARS/files/$fileId/view?project=$projectId"
-    }
+    suspend fun getCurrentUserName(): String? = try { account.get().name } catch (e: Exception) { null }
+    suspend fun getCurrentUserId(): String? = try { account.get().id } catch (e: Exception) { null }
+    suspend fun isLoggedIn(): Boolean = getCurrentUserId() != null
 
-    // --- AUTHENTICATION ---
-    suspend fun getCurrentUserName(): String? {
-        return try {
-            val user = account.get()
-            user.name
-        } catch (e: Exception) {
-            null
-        }
-    }
+    suspend fun login(email: String, password: String): Result<Boolean> = try {
+        try { account.deleteSession("current") } catch (e: Exception) { }
+        account.createEmailPasswordSession(email, password)
+        Result.success(true)
+    } catch (e: AppwriteException) { Result.failure(e) }
 
-    suspend fun getCurrentUserId(): String? {
-        return try {
-            val user = account.get()
-            user.id
-        } catch (e: Exception) {
-            null
-        }
-    }
+    suspend fun signUp(email: String, password: String, name: String): Result<Boolean> = try {
+        account.create(ID.unique(), email, password, name)
+        account.createEmailPasswordSession(email, password)
+        Result.success(true)
+    } catch (e: AppwriteException) { Result.failure(e) }
 
-    suspend fun isLoggedIn(): Boolean {
-        return getCurrentUserId() != null
-    }
-
-    suspend fun login(email: String, password: String): Result<Boolean> {
-        return try {
-            try {
-                account.deleteSession("current")
-            } catch (e: Exception) { }
-
-            account.createEmailPasswordSession(email, password)
-            Result.success(true)
-        } catch (e: AppwriteException) {
-            android.util.Log.e("AppwriteService", "Login error: ${e.message}")
-            Result.failure(e)
-        }
-    }
-
-    suspend fun signUp(email: String, password: String, name: String): Result<Boolean> {
-        return try {
-            account.create(ID.unique(), email, password, name)
-            Result.success(true)
-        } catch (e: AppwriteException) {
-            android.util.Log.e("AppwriteService", "Signup error: ${e.message}")
-            Result.failure(e)
-        }
-    }
-
-    suspend fun logout(): Boolean {
-        return try {
-            account.deleteSession("current")
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    // --- DATA FETCHING ---
+    suspend fun logout(): Boolean = try { account.deleteSession("current"); true } catch (e: Exception) { false }
 
     suspend fun saveUserProfile(
         userId: String, 
@@ -95,8 +47,8 @@ class AppwriteService(context: Context) {
         progressMap: Map<String, Float>
     ): Boolean {
         return try {
-            val json = JSONObject()
-            progressMap.forEach { (key, value) -> json.put(key, value.toDouble()) }
+            val progressJson = JSONObject()
+            progressMap.forEach { (k, v) -> progressJson.put(k, v.toDouble()) }
             
             val data = mapOf(
                 "user_id" to userId,
@@ -105,108 +57,61 @@ class AppwriteService(context: Context) {
                 "level" to level,
                 "title" to title,
                 "score" to score,
-                "progress_data" to json.toString()
+                "progress_data" to progressJson.toString()
             )
             
-            try {
-                databases.updateDocument(
-                    databaseId = DATABASE_ID,
-                    collectionId = COLLECTION_USERS,
-                    documentId = userId,
-                    data = data
-                )
-            } catch (e: Exception) {
-                databases.createDocument(
-                    databaseId = DATABASE_ID,
-                    collectionId = COLLECTION_USERS,
-                    documentId = userId,
-                    data = data
-                )
+            val existing = databases.listDocuments(
+                databaseId = DATABASE_ID,
+                collectionId = COLLECTION_USERS,
+                queries = listOf(Query.equal("user_id", userId))
+            )
+
+            if (existing.documents.isNotEmpty()) {
+                databases.updateDocument(DATABASE_ID, COLLECTION_USERS, existing.documents[0].id, data)
+            } else {
+                databases.createDocument(DATABASE_ID, COLLECTION_USERS, ID.unique(), data)
             }
             true
-        } catch (e: AppwriteException) {
-            android.util.Log.e("AppwriteService", "Error saving profile: ${e.message}")
-            false
+        } catch (e: Exception) { 
+            Log.e("JavoraDB", "Save error: ${e.message}")
+            false 
         }
     }
 
     suspend fun getUserProfile(userId: String): Map<String, Any>? {
-        android.util.Log.d("AppwriteService", "Mencari data untuk user_id: $userId")
         return try {
             val response = databases.listDocuments(
                 databaseId = DATABASE_ID,
                 collectionId = COLLECTION_USERS,
                 queries = listOf(Query.equal("user_id", userId))
             )
-            
-            if (response.documents.isNotEmpty()) {
-                val data = response.documents[0].data
-                android.util.Log.d("AppwriteService", "DATA BERHASIL DIAMBIL: $data")
-                data
-            } else {
-                android.util.Log.d("AppwriteService", "DATA TIDAK DITEMUKAN untuk user_id: $userId")
-                null
+            if (response.documents.isNotEmpty()) response.documents[0].data else null
+        } catch (e: Exception) { null }
+    }
+
+    fun parseProgressData(data: Any?): Map<String, Float> {
+        if (data == null) return emptyMap()
+        val map = mutableMapOf<String, Float>()
+        try {
+            when (data) {
+                is Map<*, *> -> {
+                    data.forEach { (k, v) -> map[k.toString()] = (v as? Number)?.toFloat() ?: 0f }
+                }
+                is String -> {
+                    if (data.isEmpty() || data == "null") return emptyMap()
+                    val json = JSONObject(data)
+                    json.keys().forEach { k -> map[k] = json.optDouble(k, 0.0).toFloat() }
+                }
             }
-        } catch (e: AppwriteException) {
-            android.util.Log.e("AppwriteService", "GAGAL AKSES DATABASE: ${e.message}")
-            null
-        }
+        } catch (e: Exception) { }
+        return map
     }
 
-    fun parseProgressData(jsonString: String?): Map<String, Float> {
-        if (jsonString.isNullOrEmpty()) return emptyMap()
-        return try {
-            val json = JSONObject(jsonString)
-            val map = mutableMapOf<String, Float>()
-            val keys = json.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                map[key] = json.getDouble(key).toFloat()
-            }
-            map
-        } catch (e: Exception) {
-            emptyMap()
-        }
-    }
-
-    suspend fun getTopics(): List<Map<String, Any>> {
-        return try {
-            val response = databases.listDocuments(
-                databaseId = DATABASE_ID,
-                collectionId = COLLECTION_TOPICS
-            )
-            response.documents.map { it.data }
-        } catch (e: AppwriteException) {
-            emptyList()
-        }
-    }
-
-    suspend fun getLeaderboard(): List<Map<String, Any>> {
-        return try {
-            val response = databases.listDocuments(
-                databaseId = DATABASE_ID,
-                collectionId = COLLECTION_USERS,
-                queries = listOf(
-                    Query.orderDesc("score"),
-                    Query.limit(10)
-                )
-            )
-            response.documents.map { it.data }
-        } catch (e: AppwriteException) {
-            emptyList()
-        }
-    }
-
-    suspend fun getRankings(): List<Map<String, Any>> {
-        return try {
-            val response = databases.listDocuments(
-                databaseId = DATABASE_ID,
-                collectionId = COLLECTION_RANKINGS,
-                queries = listOf(Query.orderAsc("rank_number"))
-            )
-            response.documents.map { it.data }
-        } catch (e: AppwriteException) {
-            emptyList()
-        }
-    }
+    suspend fun getLeaderboard(): List<Map<String, Any>> = try {
+        databases.listDocuments(
+            databaseId = DATABASE_ID,
+            collectionId = COLLECTION_USERS,
+            queries = listOf(Query.orderDesc("score"), Query.limit(10))
+        ).documents.map { it.data }
+    } catch (e: Exception) { emptyList() }
 }

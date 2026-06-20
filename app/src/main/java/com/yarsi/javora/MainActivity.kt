@@ -121,6 +121,7 @@ fun MainNavigation() {
                     "quiz" -> QuizScreen(
                         topicName = currentTopic,
                         questions = quizQuestions,
+                        avatarUrl = userAvatar,
                         progressMap = progressMap,
                         onExit = { partialProgress ->
                             userViewModel.updatePartialProgress(currentTopic, partialProgress)
@@ -160,14 +161,21 @@ fun MainNavigation() {
                             currentScreen = "geranda"
                         }
                     )
-                    "rank" -> RankNavigationWrapper(
-                        authRepository = authRepository,
-                        mainRepository = mainRepository,
-                        userViewModel = userViewModel,
-                        userTotalXp = userTotalXp,
-                        userRank = userRank,
-                        onNavigate = { currentScreen = it }
-                    )
+                    "rank" -> {
+                        val userId = remember { mutableStateOf<String?>(null) }
+                        LaunchedEffect(Unit) { userId.value = authRepository.getCurrentUserId() }
+                        
+                        RankNavigationWrapper(
+                            authRepository = authRepository,
+                            mainRepository = mainRepository,
+                            userViewModel = userViewModel,
+                            userTotalXp = userTotalXp,
+                            userAvatar = userAvatar,
+                            userRank = userRank,
+                            currentUserId = userId.value ?: "",
+                            onNavigate = { currentScreen = it }
+                        )
+                    }
                     "profile" -> ProfileScreen(
                         userName = userName,
                         avatarUrl = userAvatar,
@@ -186,6 +194,7 @@ fun MainNavigation() {
                     )
                     else -> HomeScreen(
                         userName = userName,
+                        avatarUrl = userAvatar,
                         totalXp = userTotalXp,
                         level = userLevel,
                         userRank = if (userRank > 0) "#$userRank" else "-",
@@ -258,7 +267,9 @@ fun RankNavigationWrapper(
     mainRepository: MainRepository,
     userViewModel: UserViewModel,
     userTotalXp: Int,
+    userAvatar: String?,
     userRank: Int,
+    currentUserId: String,
     onNavigate: (String) -> Unit
 ) {
     var leaderboardUsers by remember { mutableStateOf<List<com.yarsi.javora.data.RankUser>>(emptyList()) }
@@ -267,47 +278,57 @@ fun RankNavigationWrapper(
     var loadError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    // Ambil ID user sekarang untuk mencocokkan data
-    val currentUserIdState = remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        currentUserIdState.value = authRepository.getCurrentUserId()
-    }
-
         suspend fun loadData(isRefresh: Boolean = false) {
             if (isRefresh) isRefreshing = true
             loadError = null
             try {
-                // Ambil ID user real-time setiap kali load data
-                val userId = authRepository.getCurrentUserId() ?: ""
                 val rawData = mainRepository.getLeaderboard()
                 
-                android.util.Log.d("JavoraRank", "Sync DB: Dapat ${rawData.size} data. UserID: $userId")
-                
-                leaderboardUsers = rawData.mapIndexed { index, map ->
-                    val rawName = map["full_name"]?.toString()
-                    val rawScore = map["score"] ?: map["total_xp"] ?: 0
+                val mappedUsers = rawData.map { map ->
+                    // PRIORITAS: Ambil total_xp dulu karena score di DB banyak yang 0
+                    val rawScore = map["total_xp"] ?: map["score"] ?: 0
+                    val rawName = map["full_name"]?.toString() ?: "Pemain"
                     val docId = map["\$id"]?.toString() ?: ""
+                    val userIdInDoc = map["user_id"]?.toString() ?: ""
                     
-                    // Cek apakah ini saya
-                    val isMe = docId == userId || map["user_id"]?.toString() == userId
+                    // Deteksi SAYA yang lebih akurat
+                    val isMe = (currentUserId.isNotEmpty() && (docId == currentUserId || userIdInDoc == currentUserId))
+                    
+                    val scoreInt = when {
+                        isMe -> userTotalXp
+                        rawScore is Number -> rawScore.toInt()
+                        rawScore is String -> rawScore.filter { it.isDigit() }.toIntOrNull() ?: 0
+                        else -> 0
+                    }
                     
                     com.yarsi.javora.data.RankUser(
-                        rank = index + 1,
-                        name = when {
-                            isMe -> userViewModel.userName.value // Nama kamu PASTI asli dari HP
-                            !rawName.isNullOrEmpty() -> rawName // Nama orang lain dari database
-                            else -> "Pemain #${index+1}" // Atribut tersembunyi/null
-                        },
-                        score = when {
-                            isMe -> userTotalXp.toString() // Skor kamu PASTI asli dari HP
-                            rawScore is Number -> rawScore.toInt().toString()
-                            rawScore is String -> rawScore.toDoubleOrNull()?.toInt()?.toString() ?: "0"
-                            else -> "0"
-                        },
-                        subtitle = if (!rawName.isNullOrEmpty()) "Java Coder" else "Profil Terkunci",
+                        rank = 0, 
+                        name = if (isMe) userViewModel.userName.value else rawName,
+                        score = scoreInt.toString(),
+                        subtitle = "Java Coder",
                         isCurrentUser = isMe
                     )
-                }
+                }.toMutableList()
+
+                // Hapus data saya dari list server (jika ada) agar tidak duplikat dengan data lokal
+                mappedUsers.removeAll { it.isCurrentUser }
+                
+                // Tambahkan data saya yang paling update
+                mappedUsers.add(
+                    com.yarsi.javora.data.RankUser(
+                        rank = 0,
+                        name = userViewModel.userName.value,
+                        score = userTotalXp.toString(),
+                        subtitle = "Java Coder",
+                        isCurrentUser = true
+                    )
+                )
+
+                // SORTING MUTLAK: Urutkan murni berdasarkan angka skor TERBESAR ke TERKECIL
+                leaderboardUsers = mappedUsers
+                    .sortedByDescending { it.score.toIntOrNull() ?: 0 }
+                    .mapIndexed { index, user -> user.copy(rank = index + 1) }
+
                 userViewModel.loadUserRank()
             } catch (e: Exception) {
                 android.util.Log.e("JavoraDebug", "Gagal muat rank: ${e.message}")
@@ -319,14 +340,21 @@ fun RankNavigationWrapper(
         }
 
     // REAL-TIME: Dengerin perubahan di database Appwrite
-    DisposableEffect(currentUserIdState.value) {
+    DisposableEffect(currentUserId) {
         val subscription = mainRepository.subscribeToLeaderboard {
             scope.launch { loadData(isRefresh = false) }
         }
         onDispose { subscription.close() }
     }
 
-    LaunchedEffect(currentUserIdState.value) {
+    // UPDATE OTOMATIS: Jika skor saya berubah di HP, langsung update urutan di layar
+    LaunchedEffect(userTotalXp, userViewModel.userName.value) {
+        if (rankLoadDone) {
+            loadData(isRefresh = false)
+        }
+    }
+
+    LaunchedEffect(currentUserId) {
         loadData()
     }
 
@@ -348,13 +376,17 @@ fun RankNavigationWrapper(
                 }
             }
         }
-        else -> RankScreen(
-            users = leaderboardUsers,
-            currentUserRank = if (userRank > 0) userRank else null,
-            currentUserScore = userTotalXp.toString(),
-            isRefreshing = isRefreshing,
-            onRefresh = { scope.launch { loadData(true) } },
-            onTabSelected = { onNavigate(it.lowercase()) }
-        )
+        else -> {
+            val finalRank = leaderboardUsers.find { it.isCurrentUser }?.rank ?: userRank
+            RankScreen(
+                users = leaderboardUsers,
+                currentUserRank = if (finalRank > 0) finalRank else null,
+                currentUserScore = userTotalXp.toString(),
+                avatarUrl = userAvatar,
+                isRefreshing = isRefreshing,
+                onRefresh = { scope.launch { loadData(true) } },
+                onTabSelected = { onNavigate(it.lowercase()) }
+            )
+        }
     }
 }
