@@ -8,7 +8,7 @@ lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.13.0"
 kotlin = "2.2.10"
 composeBom = "2026.02.01"
-appwrite = "24.2.0"
+appwrite = "24.0.0"
 coil = "2.7.0"
 generativeai = "0.9.0"
 

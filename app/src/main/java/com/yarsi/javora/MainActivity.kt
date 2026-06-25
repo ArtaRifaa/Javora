@@ -278,73 +278,74 @@ fun RankNavigationWrapper(
     var loadError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-        suspend fun loadData(isRefresh: Boolean = false) {
-            if (isRefresh) isRefreshing = true
-            loadError = null
-            try {
-                val rawData = mainRepository.getLeaderboard()
-                
-                val mappedUsers = rawData.map { map ->
-                    // PRIORITAS: Ambil total_xp dulu karena score di DB banyak yang 0
-                    val rawScore = map["total_xp"] ?: map["score"] ?: 0
-                    val rawName = map["full_name"]?.toString() ?: "Pemain"
-                    val docId = map["\$id"]?.toString() ?: ""
-                    val userIdInDoc = map["user_id"]?.toString() ?: ""
-                    
-                    // Deteksi SAYA yang lebih akurat
-                    val isMe = (currentUserId.isNotEmpty() && (docId == currentUserId || userIdInDoc == currentUserId))
-                    
-                    val scoreInt = when {
-                        isMe -> userTotalXp
-                        rawScore is Number -> rawScore.toInt()
-                        rawScore is String -> rawScore.filter { it.isDigit() }.toIntOrNull() ?: 0
-                        else -> 0
-                    }
-                    
-                    com.yarsi.javora.data.RankUser(
-                        rank = 0, 
-                        name = if (isMe) userViewModel.userName.value else rawName,
-                        score = scoreInt.toString(),
-                        subtitle = "Java Coder",
-                        isCurrentUser = isMe
-                    )
-                }.toMutableList()
+    suspend fun loadData(isRefresh: Boolean = false) {
+        android.util.Log.e("MASUK", "LOADDATA DIPANGGIL")
 
-                // Hapus data saya dari list server (jika ada) agar tidak duplikat dengan data lokal
-                mappedUsers.removeAll { it.isCurrentUser }
-                
-                // Tambahkan data saya yang paling update
-                mappedUsers.add(
-                    com.yarsi.javora.data.RankUser(
-                        rank = 0,
-                        name = userViewModel.userName.value,
-                        score = userTotalXp.toString(),
-                        subtitle = "Java Coder",
-                        isCurrentUser = true
-                    )
+        if (isRefresh) isRefreshing = true
+        loadError = null
+
+        try {
+            val rawData = mainRepository.getLeaderboard()
+
+            android.util.Log.e("TEST123", "JUMLAH = ${rawData.size}")
+
+
+            val mapped = rawData.mapIndexed { index, map ->
+
+                android.util.Log.d("LEADERBOARD", "Row[$index] = $map")
+
+                val name = when {
+                    map["full_name"] != null -> map["full_name"].toString()
+                    map["fullName"] != null -> map["fullName"].toString()
+                    map["name"] != null -> map["name"].toString()
+                    map["username"] != null -> map["username"].toString()
+                    else -> "Pemain"
+                }
+
+                val score = when (val s = map["score"] ?: map["total_xp"]) {
+                    is Number -> s.toInt()
+                    is String -> s.toIntOrNull() ?: 0
+                    else -> 0
+                }
+
+                val uid = map["user_id"]?.toString() ?: ""
+
+                com.yarsi.javora.data.RankUser(
+                    rank = index + 1,
+                    name = name,
+                    score = score.toString(),
+                    subtitle = "Java Coder",
+                    isCurrentUser = uid == currentUserId
                 )
+            }
 
-                // SORTING MUTLAK: Urutkan murni berdasarkan angka skor TERBESAR ke TERKECIL
-                leaderboardUsers = mappedUsers
-                    .sortedByDescending { it.score.toIntOrNull() ?: 0 }
-                    .mapIndexed { index, user -> user.copy(rank = index + 1) }
+            leaderboardUsers = mapped.sortedByDescending {
+                it.score.toIntOrNull() ?: 0
+            }.mapIndexed { i, user ->
+                user.copy(rank = i + 1)
+            }
 
-                userViewModel.loadUserRank()
-            } catch (e: Exception) {
-                android.util.Log.e("JavoraDebug", "Gagal muat rank: ${e.message}")
-                loadError = "Gagal memuat peringkat."
-            } finally {
-                rankLoadDone = true
-                isRefreshing = false
+            userViewModel.loadUserRank()
+
+        } catch (e: Exception) {
+            android.util.Log.e("LEADERBOARD", "ERROR = ${e.message}", e)
+            loadError = e.message
+        } finally {
+            rankLoadDone = true
+            isRefreshing = false
+        }
+    }
+    // REAL-TIME: Dengerin perubahan di database Appwrite
+    DisposableEffect(Unit) {
+        val subscription = mainRepository.subscribeToLeaderboard {
+            scope.launch {
+                loadData(false)
             }
         }
 
-    // REAL-TIME: Dengerin perubahan di database Appwrite
-    DisposableEffect(currentUserId) {
-        val subscription = mainRepository.subscribeToLeaderboard {
-            scope.launch { loadData(isRefresh = false) }
+        onDispose {
+            subscription.close()
         }
-        onDispose { subscription.close() }
     }
 
     // UPDATE OTOMATIS: Jika skor saya berubah di HP, langsung update urutan di layar
@@ -354,7 +355,7 @@ fun RankNavigationWrapper(
         }
     }
 
-    LaunchedEffect(currentUserId) {
+    LaunchedEffect(Unit) {
         loadData()
     }
 

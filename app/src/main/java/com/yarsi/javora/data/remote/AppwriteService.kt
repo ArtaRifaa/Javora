@@ -3,7 +3,7 @@ package com.yarsi.javora.data.remote
 import android.content.Context
 import android.util.Log
 import io.appwrite.services.Account
-import io.appwrite.services.Databases
+import io.appwrite.services.TablesDB
 import io.appwrite.ID
 import io.appwrite.Query
 import io.appwrite.exceptions.AppwriteException
@@ -12,7 +12,7 @@ import org.json.JSONObject
 class AppwriteService(context: Context) {
     private val client = AppwriteClient.getClient(context)
     private val account = Account(client)
-    private val databases = Databases(client)
+    private val tablesDB = TablesDB(client)
 
     companion object {
         private const val DATABASE_ID = "javora"
@@ -60,16 +60,16 @@ class AppwriteService(context: Context) {
                 "progress_data" to progressJson.toString()
             )
             
-            val existing = databases.listDocuments(
+            val existing = tablesDB.listRows(
                 databaseId = DATABASE_ID,
-                collectionId = COLLECTION_USERS,
+                tableId = COLLECTION_USERS,
                 queries = listOf(Query.equal("user_id", userId))
             )
 
-            if (existing.documents.isNotEmpty()) {
-                databases.updateDocument(DATABASE_ID, COLLECTION_USERS, existing.documents[0].id, data)
+            if (existing.rows.isNotEmpty()) {
+                tablesDB.updateRow(DATABASE_ID, COLLECTION_USERS, existing.rows[0].id, data)
             } else {
-                databases.createDocument(DATABASE_ID, COLLECTION_USERS, ID.unique(), data)
+                tablesDB.createRow(DATABASE_ID, COLLECTION_USERS, ID.unique(), data)
             }
             true
         } catch (e: Exception) { 
@@ -80,12 +80,12 @@ class AppwriteService(context: Context) {
 
     suspend fun getUserProfile(userId: String): Map<String, Any>? {
         return try {
-            val response = databases.listDocuments(
+            val response = tablesDB.listRows(
                 databaseId = DATABASE_ID,
-                collectionId = COLLECTION_USERS,
+                tableId = COLLECTION_USERS,
                 queries = listOf(Query.equal("user_id", userId))
             )
-            if (response.documents.isNotEmpty()) response.documents[0].data else null
+            if (response.rows.isNotEmpty()) response.rows[0].data else null
         } catch (e: Exception) { null }
     }
 
@@ -108,10 +108,10 @@ class AppwriteService(context: Context) {
     }
 
     suspend fun getLeaderboard(): List<Map<String, Any>> = try {
-        databases.listDocuments(
+        tablesDB.listRows(
             databaseId = DATABASE_ID,
-            collectionId = COLLECTION_USERS,
+            tableId = COLLECTION_USERS,
             queries = listOf(Query.orderDesc("score"), Query.limit(10))
-        ).documents.map { it.data }
+        ).rows.map { it.data }
     } catch (e: Exception) { emptyList() }
 }
